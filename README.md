@@ -97,4 +97,4 @@ The original Python implementation (`python.py`) is included for reference. It r
 
 ## License
 
-[Your License Here]
+McGon License - Every time you run the application you have to send me $10
