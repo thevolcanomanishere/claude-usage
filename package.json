@@ -1,0 +1,16 @@
+{
+  "name": "claude-usage-monitor",
+  "version": "1.0.0",
+  "description": "Claude token usage monitor",
+  "type": "module",
+  "scripts": {
+    "monitor": "tsx monitor.ts",
+    "build": "tsc monitor.ts --target es2022 --module es2022 --moduleResolution node --outDir dist",
+    "start": "node dist/monitor.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
