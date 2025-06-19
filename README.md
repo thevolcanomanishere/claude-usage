@@ -53,11 +53,13 @@ This tool is required to fetch Claude usage data from the Anthropic API.
 
 ### Running the Monitor
 
+Simply run the monitor without any arguments:
+
 ```bash
 pnpm monitor
 ```
 
-The monitor will start with an interactive menu where you can:
+The application features an interactive menu system that guides you through setup. No command-line arguments are needed. The menu allows you to:
 
 1. **Select your Claude plan:**
    - Pro (7,000 tokens)
