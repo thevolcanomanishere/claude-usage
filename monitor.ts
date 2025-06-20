@@ -56,6 +56,46 @@ function createCompactProgressBar(percentage: number, width: number = 20): strin
   return `[${green}${greenBar}${red}${redBar}${reset}]`;
 }
 
+function createTokenProgressBar(percentage: number, width: number = 50): string {
+  const filled = Math.floor(width * percentage / 100);
+  
+  const greenBar = '█'.repeat(filled);
+  const redBar = '░'.repeat(width - filled);
+  
+  const green = '\x1b[92m';
+  const red = '\x1b[91m';
+  const reset = '\x1b[0m';
+  
+  return `🟢 [${green}${greenBar}${red}${redBar}${reset}] ${percentage.toFixed(1)}%`;
+}
+
+function createTimeProgressBar(elapsedMinutes: number, totalMinutes: number, width: number = 50): string {
+  const percentage = totalMinutes <= 0 ? 0 : Math.min(100, (elapsedMinutes / totalMinutes) * 100);
+  const filled = Math.floor(width * percentage / 100);
+  
+  const blueBar = '█'.repeat(filled);
+  const redBar = '░'.repeat(width - filled);
+  
+  const blue = '\x1b[94m';
+  const red = '\x1b[91m';
+  const reset = '\x1b[0m';
+  
+  const remainingTime = formatTime(Math.max(0, totalMinutes - elapsedMinutes));
+  return `⏰ [${blue}${blueBar}${red}${redBar}${reset}] ${remainingTime}`;
+}
+
+function printHeader(): void {
+  const cyan = '\x1b[96m';
+  const blue = '\x1b[94m';
+  const reset = '\x1b[0m';
+  
+  const sparkles = `${cyan}✦ ✧ ✦ ✧ ${reset}`;
+  
+  console.log(`${sparkles}${cyan}CLAUDE TOKEN MONITOR${reset} ${sparkles}`);
+  console.log(`${blue}${'='.repeat(60)}${reset}`);
+  console.log();
+}
+
 function createMiniGraph(history: number[], width: number = 60): string {
   if (history.length === 0) return ' '.repeat(width);
   
@@ -244,7 +284,7 @@ async function askQuestion(question: string): Promise<string> {
   });
 }
 
-async function showMenu(): Promise<{ plan: string }> {
+async function showMenu(): Promise<{ plan: string; resetHour?: number; displayMode: string }> {
   console.log('\n🚀 Claude Token Monitor Setup\n');
   console.log('Select your Claude plan:');
   console.log('1. Pro (7,000 tokens)');
@@ -290,11 +330,32 @@ async function showMenu(): Promise<{ plan: string }> {
     }
   }
 
-  return { plan, resetHour };
+  console.log();
+  console.log('Select display mode:');
+  console.log('1. Verbose (full multi-line display)');
+  console.log('2. Minimal (compact single-line with border)');
+  console.log();
+
+  let displayMode = '';
+  while (!displayMode) {
+    const choice = await askQuestion('Enter display mode (1-2): ');
+    switch (choice.trim()) {
+      case '1':
+        displayMode = 'verbose';
+        break;
+      case '2':
+        displayMode = 'minimal';
+        break;
+      default:
+        console.log('Invalid choice. Please enter 1 or 2.');
+    }
+  }
+
+  return { plan, resetHour, displayMode };
 }
 
 async function main(): Promise<void> {
-  const { plan, resetHour } = await showMenu();
+  const { plan, resetHour, displayMode } = await showMenu();
   
   console.log(`\n✅ Plan: ${plan.toUpperCase()}`);
   if (resetHour !== undefined) {
@@ -429,29 +490,84 @@ async function main(): Promise<void> {
       const progressBar = createCompactProgressBar(usagePercentage);
       const timeStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
       
-      // Get current terminal width and calculate graph size
-      const terminalWidth = getTerminalWidth();
-      const baseLineLength = `${warningIcon} ${progressBar} Tokens: ${tokensUsed.toLocaleString()}/${tokenLimit.toLocaleString()} (${tokensLeft.toLocaleString()} left) Burn: ${burnRate.toFixed(1)}/min  End: ${predictedEndStr} Reset: ${resetTimeStr} ${timeStr}`.length;
-      const availableGraphSpace = Math.max(10, terminalWidth - baseLineLength - 10); // Leave some margin
-      
-      // Mini graph inline with dynamic sizing
-      const graph = createMiniGraph(burnRateHistory, Math.min(40, availableGraphSpace));
-      
-      const line = `${warningIcon} ${progressBar} Tokens: ${colors.white}${tokensUsed.toLocaleString()}${colors.reset}/${colors.gray}${tokenLimit.toLocaleString()}${colors.reset} (${colors.cyan}${tokensLeft.toLocaleString()} left${colors.reset}) Burn: ${colors.yellow}${burnRate.toFixed(1)}/min${colors.reset} ${graph} End: ${predictedEndStr} Reset: ${resetTimeStr} ${colors.gray}${timeStr}${colors.reset}`;
-      
-      // Calculate visible length (excluding ANSI codes)
-      const visibleLength = line.replace(/\x1b\[[0-9;]*m/g, '').length;
-      const borderWidth = Math.max(80, terminalWidth); // Minimum 80 chars, use terminal width if larger
-      const padding = ' '.repeat(Math.max(0, borderWidth - 4 - visibleLength));
-      
-      // ASCII border
-      const topBorder = `${colors.cyan}╭${'─'.repeat(borderWidth - 2)}╮${colors.reset}`;
-      const bottomBorder = `${colors.cyan}╰${'─'.repeat(borderWidth - 2)}╯${colors.reset}`;
-      const paddedLine = `${colors.cyan}│${colors.reset} ${line}${padding} ${colors.cyan}│${colors.reset}`;
-      
-      console.log(topBorder);
-      console.log(paddedLine);
-      console.log(bottomBorder);
+      if (displayMode === 'minimal') {
+        // Minimal display mode with border
+        const terminalWidth = getTerminalWidth();
+        const baseLineLength = `${warningIcon} ${progressBar} Tokens: ${tokensUsed.toLocaleString()}/${tokenLimit.toLocaleString()} Burn: ${burnRate.toFixed(1)}/min  End: ${predictedEndStr} Reset: ${resetTimeStr} ${timeStr}`.length;
+        const availableGraphSpace = Math.max(10, terminalWidth - baseLineLength - 10);
+        
+        const graph = createMiniGraph(burnRateHistory, Math.min(40, availableGraphSpace));
+        
+        const line = `${warningIcon} ${progressBar} Tokens: ${colors.white}${tokensUsed.toLocaleString()}${colors.reset}/${colors.gray}${tokenLimit.toLocaleString()}${colors.reset} Burn: ${colors.yellow}${burnRate.toFixed(1)}/min${colors.reset} ${graph} End: ${predictedEndStr} Reset: ${resetTimeStr} ${colors.gray}${timeStr}${colors.reset}`;
+        
+        const visibleLength = line.replace(/\x1b\[[0-9;]*m/g, '').length;
+        const borderWidth = Math.max(80, terminalWidth);
+        const padding = ' '.repeat(Math.max(0, borderWidth - 4 - visibleLength));
+        
+        const topBorder = `${colors.cyan}╭${'─'.repeat(borderWidth - 2)}╮${colors.reset}`;
+        const bottomBorder = `${colors.cyan}╰${'─'.repeat(borderWidth - 2)}╯${colors.reset}`;
+        const paddedLine = `${colors.cyan}│${colors.reset} ${line}${padding} ${colors.cyan}│${colors.reset}`;
+        
+        console.log(topBorder);
+        console.log(paddedLine);
+        console.log(bottomBorder);
+      } else {
+        // Verbose display mode (original)
+        printHeader();
+
+        console.log(`📊 ${colors.white}Token Usage:${colors.reset}    ${createTokenProgressBar(usagePercentage)}`);
+        console.log();
+
+        const timeSinceReset = Math.max(0, 300 - minutesToReset);
+        console.log(`⏳ ${colors.white}Time to Reset:${colors.reset}  ${createTimeProgressBar(timeSinceReset, 300)}`);
+        console.log();
+
+        console.log(`🎯 ${colors.white}Tokens:${colors.reset}         ${colors.white}${tokensUsed.toLocaleString()}${colors.reset} / ${colors.gray}~${tokenLimit.toLocaleString()}${colors.reset} (${colors.cyan}${tokensLeft.toLocaleString()} left${colors.reset})`);
+        console.log(`🔥 ${colors.white}Burn Rate:${colors.reset}      ${colors.yellow}${burnRate.toFixed(1)}${colors.reset} ${colors.gray}tokens/min${colors.reset}`);
+        console.log();
+
+        const today = new Date();
+        const isToday = (date: Date) => {
+          return date.getDate() === today.getDate() &&
+                 date.getMonth() === today.getMonth() &&
+                 date.getFullYear() === today.getFullYear();
+        };
+        
+        const predictedEndStr = predictedEndTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        const resetTimeStr = resetTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        
+        const predictedDisplay = isToday(predictedEndTime) 
+          ? predictedEndStr 
+          : `${predictedEndStr} (${predictedEndTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+        const resetDisplay = isToday(resetTime) 
+          ? resetTimeStr 
+          : `${resetTimeStr} (${resetTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+        
+        console.log(`🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}`);
+        console.log(`🔄 ${colors.white}Token Reset:${colors.reset}   ${resetDisplay}`);
+        console.log();
+
+        const showSwitchNotification = tokensUsed > 7000 && plan === 'pro' && tokenLimit > 7000;
+        const showExceedNotification = tokensUsed > tokenLimit;
+
+        if (showSwitchNotification) {
+          console.log(`🔄 ${colors.yellow}Tokens exceeded Pro limit - switched to custom_max (${tokenLimit.toLocaleString()})${colors.reset}`);
+          console.log();
+        }
+
+        if (showExceedNotification) {
+          console.log(`🚨 ${colors.red}TOKENS EXCEEDED MAX LIMIT! (${tokensUsed.toLocaleString()} > ${tokenLimit.toLocaleString()})${colors.reset}`);
+          console.log();
+        }
+
+        if (predictedEndTime < resetTime) {
+          console.log(`⚠️  ${colors.red}Tokens will run out BEFORE reset!${colors.reset}`);
+          console.log();
+        }
+
+        const currentTimeStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        console.log(`⏰ ${colors.gray}${currentTimeStr}${colors.reset} 📝 ${colors.cyan}Smooth sailing...${colors.reset} | ${colors.gray}Ctrl+C to exit${colors.reset} 🟨`);
+      }
 
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
