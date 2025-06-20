@@ -268,34 +268,14 @@ async function showMenu(): Promise<{ plan: string; resetHour?: number }> {
     }
   }
 
-  console.log();
-  const useCustomReset = await askQuestion('Use custom reset hour? (y/N): ');
-  let resetHour: number | undefined;
-
-  if (useCustomReset.toLowerCase().startsWith('y')) {
-    while (resetHour === undefined) {
-      const hourInput = await askQuestion('Enter reset hour (0-23): ');
-      const hour = parseInt(hourInput.trim());
-      if (isNaN(hour) || hour < 0 || hour > 23) {
-        console.log('Invalid hour. Please enter a number between 0 and 23.');
-      } else {
-        resetHour = hour;
-      }
-    }
-  }
-
-  return { plan, resetHour };
+  return { plan };
 }
 
 async function main(): Promise<void> {
-  const { plan, resetHour } = await showMenu();
+  const { plan } = await showMenu();
   
   console.log(`\n✅ Plan: ${plan.toUpperCase()}`);
-  if (resetHour !== undefined) {
-    console.log(`✅ Custom reset hour: ${resetHour}:00`);
-  } else {
-    console.log('✅ Default reset schedule: 04:00, 09:00, 14:00, 18:00, 23:00');
-  }
+  console.log('✅ Reset schedule: 04:00, 09:00, 14:00, 18:00, 23:00');
   console.log('✅ Timezone: System local time');
   console.log('\nStarting monitor in 3 seconds...\n');
   
@@ -368,7 +348,7 @@ async function main(): Promise<void> {
 
       const burnRate = calculateHourlyBurnRate(data.blocks, currentTime);
 
-      const resetTime = getNextResetTime(currentTime, resetHour);
+      const resetTime = getNextResetTime(currentTime);
 
       const timeToReset = resetTime.getTime() - currentTime.getTime();
       const minutesToReset = timeToReset / 60000;
