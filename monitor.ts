@@ -15,9 +15,6 @@ interface CcusageData {
   blocks: Block[];
 }
 
-// Store historical burn rates for the mini graph
-const burnRateHistory: number[] = [];
-
 function getTerminalWidth(): number {
   return process.stdout.columns || 156;
 }
@@ -42,18 +39,6 @@ function formatTime(minutes: number): string {
     return `${hours}h`;
   }
   return `${hours}h ${mins}m`;
-}
-
-function createCompactProgressBar(percentage: number, width: number = 20): string {
-  const filled = Math.floor(width * percentage / 100);
-  const greenBar = '█'.repeat(filled);
-  const redBar = '░'.repeat(width - filled);
-  
-  const green = '\x1b[92m';
-  const red = '\x1b[91m';
-  const reset = '\x1b[0m';
-  
-  return `[${green}${greenBar}${red}${redBar}${reset}]`;
 }
 
 function createTokenProgressBar(percentage: number, width: number = 50): string {
@@ -403,29 +388,9 @@ async function main(): Promise<void> {
       const usagePercentage = tokenLimit > 0 ? (tokensUsed / tokenLimit) * 100 : 0;
       const tokensLeft = tokenLimit - tokensUsed;
 
-      let elapsedMinutes = 0;
-      const startTimeStr = activeBlock.startTime;
       const currentTime = new Date();
-      
-      if (startTimeStr) {
-        const startTime = new Date(startTimeStr);
-        const elapsed = currentTime.getTime() - startTime.getTime();
-        elapsedMinutes = elapsed / 60000;
-      }
-
-      const sessionDuration = 300;
-      const remainingMinutes = Math.max(0, sessionDuration - elapsedMinutes);
-
       const burnRate = calculateHourlyBurnRate(data.blocks, currentTime);
-      
-      // Update burn rate history (keep last 120 points = 6 minutes at 3-second intervals)
-      burnRateHistory.push(burnRate);
-      if (burnRateHistory.length > 120) {
-        burnRateHistory.shift();
-      }
-
       const resetTime = getNextResetTime(currentTime);
-
       const timeToReset = resetTime.getTime() - currentTime.getTime();
       const minutesToReset = timeToReset / 60000;
 
@@ -461,31 +426,37 @@ async function main(): Promise<void> {
         reset: '\x1b[0m',
       };
 
-      // Format times
-      const resetTimeStr = resetTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+      // Time math
+      const timeSinceReset = Math.max(0, 300 - minutesToReset); 
+      const today = new Date();
+      const isToday = (date: Date) => {
+        return date.getDate() === today.getDate() &&
+               date.getMonth() === today.getMonth() &&
+               date.getFullYear() === today.getFullYear();
+      };
       const predictedEndStr = predictedEndTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-      
-      // Status indicators
-      const velocityIcon = getVelocityIndicator(burnRate);
-      const warningIcon = tokensUsed > tokenLimit ? '🚨' : predictedEndTime < resetTime ? '⚠️' : '✅';
-      
-      // Compact single-line display
-      const progressBar = createCompactProgressBar(usagePercentage);
-      const timeStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-      
+      const resetTimeStr = resetTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+      const predictedDisplay = isToday(predictedEndTime) 
+        ? predictedEndStr 
+        : `${predictedEndStr} (${predictedEndTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+      const resetDisplay = isToday(resetTime) 
+        ? resetTimeStr 
+        : `${resetTimeStr} (${resetTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
+
       if (displayMode === 'minimal') {
         // Minimal display mode with border
         const terminalWidth = getTerminalWidth();
-        const baseLineLength = `${warningIcon} ${progressBar} Tokens: ${tokensUsed.toLocaleString()}/${tokenLimit.toLocaleString()} Burn: ${burnRate.toFixed(1)}/min  End: ${predictedEndStr} Reset: ${resetTimeStr} ${timeStr}`.length;
-        const availableGraphSpace = Math.max(10, terminalWidth - baseLineLength - 10);
-        
-        const graph = createMiniGraph(burnRateHistory, Math.min(40, availableGraphSpace));
-        
-        const line = `${warningIcon} ${progressBar} Tokens: ${colors.white}${tokensUsed.toLocaleString()}${colors.reset}/${colors.gray}${tokenLimit.toLocaleString()}${colors.reset} Burn: ${colors.yellow}${burnRate.toFixed(1)}/min${colors.reset} ${graph} End: ${predictedEndStr} Reset: ${resetTimeStr} ${colors.gray}${timeStr}${colors.reset}`;
+        const progressBar = createTokenProgressBar(usagePercentage, 15);
+        const timeToResetBar = createTimeProgressBar(timeSinceReset, 300, 15);
+        const line = ``+
+          `📊 ${colors.white}Token Usage:${colors.reset} ${progressBar}  ` 
+        + `⏳ ${colors.white}Time to Reset:${colors.reset} ${timeToResetBar}  ` 
+        + `🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}  ` 
+        + `🔄 ${colors.white}Token Reset:${colors.reset} ${resetDisplay}`
         
         const visibleLength = line.replace(/\x1b\[[0-9;]*m/g, '').length;
         const borderWidth = Math.max(80, terminalWidth);
-        const padding = ' '.repeat(Math.max(0, borderWidth - 4 - visibleLength));
+        const padding = ' '.repeat(Math.max(0, borderWidth - 6 - visibleLength));
         
         const topBorder = `${colors.cyan}╭${'─'.repeat(borderWidth - 2)}╮${colors.reset}`;
         const bottomBorder = `${colors.cyan}╰${'─'.repeat(borderWidth - 2)}╯${colors.reset}`;
@@ -501,7 +472,6 @@ async function main(): Promise<void> {
         console.log(`📊 ${colors.white}Token Usage:${colors.reset}    ${createTokenProgressBar(usagePercentage)}`);
         console.log();
 
-        const timeSinceReset = Math.max(0, 300 - minutesToReset);
         console.log(`⏳ ${colors.white}Time to Reset:${colors.reset}  ${createTimeProgressBar(timeSinceReset, 300)}`);
         console.log();
 
@@ -509,23 +479,6 @@ async function main(): Promise<void> {
         console.log(`🔥 ${colors.white}Burn Rate:${colors.reset}      ${colors.yellow}${burnRate.toFixed(1)}${colors.reset} ${colors.gray}tokens/min${colors.reset}`);
         console.log();
 
-        const today = new Date();
-        const isToday = (date: Date) => {
-          return date.getDate() === today.getDate() &&
-                 date.getMonth() === today.getMonth() &&
-                 date.getFullYear() === today.getFullYear();
-        };
-        
-        const predictedEndStr = predictedEndTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-        const resetTimeStr = resetTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-        
-        const predictedDisplay = isToday(predictedEndTime) 
-          ? predictedEndStr 
-          : `${predictedEndStr} (${predictedEndTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
-        const resetDisplay = isToday(resetTime) 
-          ? resetTimeStr 
-          : `${resetTimeStr} (${resetTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
-        
         console.log(`🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}`);
         console.log(`🔄 ${colors.white}Token Reset:${colors.reset}   ${resetDisplay}`);
         console.log();
