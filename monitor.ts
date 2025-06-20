@@ -15,6 +15,21 @@ interface CcusageData {
   blocks: Block[];
 }
 
+const colors = {
+  cyan: '\x1b[96m',
+  green: '\x1b[92m',
+  blue: '\x1b[94m',
+  red: '\x1b[91m',
+  yellow: '\x1b[93m',
+  white: '\x1b[97m',
+  gray: '\x1b[90m',
+  reset: '\x1b[0m',
+};
+
+function getTerminalWidth(): number {
+  return process.stdout.columns || 156;
+}
+
 function runCcusage(): CcusageData | null {
   try {
     const result = execSync('ccusage blocks --json', { encoding: 'utf8' });
@@ -38,55 +53,41 @@ function formatTime(minutes: number): string {
 }
 
 function createTokenProgressBar(percentage: number, width: number = 50): string {
-  const filled = Math.floor(width * percentage / 100);
+  const filled = Math.min(width, Math.max(0, Math.floor(width * percentage / 100)));
   
   const greenBar = '█'.repeat(filled);
   const redBar = '░'.repeat(width - filled);
+
+  // green, yellow at 75%, orange at 85%, red at 95%
+  let stateIcon = '🟢'
+  if (percentage >= 95) {
+    stateIcon = '🔴'; 
+  } else if (percentage >= 85) {
+    stateIcon = '🟠'; 
+  } else if (percentage >= 75) {
+    stateIcon = '🟡'; 
+  }
   
-  const green = '\x1b[92m';
-  const red = '\x1b[91m';
-  const reset = '\x1b[0m';
-  
-  return `🟢 [${green}${greenBar}${red}${redBar}${reset}] ${percentage.toFixed(1)}%`;
+  return `${stateIcon} [${colors.green}${greenBar}${colors.red}${redBar}${colors.reset}] ${percentage.toFixed(1)}%`;
 }
 
 function createTimeProgressBar(elapsedMinutes: number, totalMinutes: number, width: number = 50): string {
   const percentage = totalMinutes <= 0 ? 0 : Math.min(100, (elapsedMinutes / totalMinutes) * 100);
-  const filled = Math.floor(width * percentage / 100);
+  const filled = Math.min(width, Math.max(0, Math.floor(width * percentage / 100)));
   
   const blueBar = '█'.repeat(filled);
   const redBar = '░'.repeat(width - filled);
   
-  const blue = '\x1b[94m';
-  const red = '\x1b[91m';
-  const reset = '\x1b[0m';
-  
   const remainingTime = formatTime(Math.max(0, totalMinutes - elapsedMinutes));
-  return `⏰ [${blue}${blueBar}${red}${redBar}${reset}] ${remainingTime}`;
+  return `⏰ [${colors.blue}${blueBar}${colors.red}${redBar}${colors.reset}] ${remainingTime}`;
 }
 
 function printHeader(): void {
-  const cyan = '\x1b[96m';
-  const blue = '\x1b[94m';
-  const reset = '\x1b[0m';
+  const sparkles = `${colors.cyan}✦ ✧ ✦ ✧ ${colors.reset}`;
   
-  const sparkles = `${cyan}✦ ✧ ✦ ✧ ${reset}`;
-  
-  console.log(`${sparkles}${cyan}CLAUDE TOKEN MONITOR${reset} ${sparkles}`);
-  console.log(`${blue}${'='.repeat(60)}${reset}`);
+  console.log(`${sparkles}${colors.cyan}CLAUDE TOKEN MONITOR${colors.reset} ${sparkles}`);
+  console.log(`${colors.blue}${'='.repeat(60)}${colors.reset}`);
   console.log();
-}
-
-function getVelocityIndicator(burnRate: number): string {
-  if (burnRate < 50) {
-    return '🐌';
-  } else if (burnRate < 150) {
-    return '➡️';
-  } else if (burnRate < 300) {
-    return '🚀';
-  } else {
-    return '⚡';
-  }
 }
 
 function calculateHourlyBurnRate(blocks: Block[], currentTime: Date): number {
@@ -213,14 +214,6 @@ function moveCursorToTop(): void {
   process.stdout.write('\x1b[H');
 }
 
-function clearBelowCursor(): void {
-  process.stdout.write('\x1b[J');
-}
-
-function clearLine(): void {
-  process.stdout.write('\x1b[2K\r');
-}
-
 function createReadlineInterface() {
   return createInterface({
     input: process.stdin,
@@ -238,7 +231,7 @@ async function askQuestion(question: string): Promise<string> {
   });
 }
 
-async function showMenu(): Promise<{ plan: string; resetHour?: number }> {
+async function showMenu(): Promise<{ plan: string; resetHour?: number; displayMode: string }> {
   console.log('\n🚀 Claude Token Monitor Setup\n');
   console.log('Select your Claude plan:');
   console.log('1. Pro (7,000 tokens)');
@@ -284,11 +277,32 @@ async function showMenu(): Promise<{ plan: string; resetHour?: number }> {
     }
   }
 
-  return { plan, resetHour };
+  console.log();
+  console.log('Select display mode:');
+  console.log('1. Verbose (full multi-line display)');
+  console.log('2. Minimal (compact single-line with border)');
+  console.log();
+
+  let displayMode = '';
+  while (!displayMode) {
+    const choice = await askQuestion('Enter display mode (1-2): ');
+    switch (choice.trim()) {
+      case '1':
+        displayMode = 'verbose';
+        break;
+      case '2':
+        displayMode = 'minimal';
+        break;
+      default:
+        console.log('Invalid choice. Please enter 1 or 2.');
+    }
+  }
+
+  return { plan, resetHour, displayMode };
 }
 
 async function main(): Promise<void> {
-  const { plan, resetHour } = await showMenu();
+  const { plan, resetHour, displayMode } = await showMenu();
   
   console.log(`\n✅ Plan: ${plan.toUpperCase()}`);
   if (resetHour !== undefined) {
@@ -350,26 +364,12 @@ async function main(): Promise<void> {
         }
       }
 
-      const usagePercentage = tokenLimit > 0 ? (tokensUsed / tokenLimit) * 100 : 0;
+      const usagePercentage = Math.max(tokenLimit > 0 ? (tokensUsed / tokenLimit) * 100 : 0, 0);
       const tokensLeft = tokenLimit - tokensUsed;
 
-      let elapsedMinutes = 0;
-      const startTimeStr = activeBlock.startTime;
       const currentTime = new Date();
-      
-      if (startTimeStr) {
-        const startTime = new Date(startTimeStr);
-        const elapsed = currentTime.getTime() - startTime.getTime();
-        elapsedMinutes = elapsed / 60000;
-      }
-
-      const sessionDuration = 300;
-      const remainingMinutes = Math.max(0, sessionDuration - elapsedMinutes);
-
       const burnRate = calculateHourlyBurnRate(data.blocks, currentTime);
-
-      const resetTime = getNextResetTime(currentTime, resetHour);
-
+      const resetTime = getNextResetTime(currentTime);
       const timeToReset = resetTime.getTime() - currentTime.getTime();
       const minutesToReset = timeToReset / 60000;
 
@@ -394,77 +394,84 @@ async function main(): Promise<void> {
         predictedEndTime = resetTime;
       }
 
-      const colors = {
-        cyan: '\x1b[96m',
-        green: '\x1b[92m',
-        blue: '\x1b[94m',
-        red: '\x1b[91m',
-        yellow: '\x1b[93m',
-        white: '\x1b[97m',
-        gray: '\x1b[90m',
-        reset: '\x1b[0m',
-      };
-
-      // Clear and print header
-      printHeader();
-
-      console.log(`📊 ${colors.white}Token Usage:${colors.reset}    ${createTokenProgressBar(usagePercentage)}`);
-      console.log();
-
-      const timeSinceReset = Math.max(0, 300 - minutesToReset);
-      console.log(`⏳ ${colors.white}Time to Reset:${colors.reset}  ${createTimeProgressBar(timeSinceReset, 300)}`);
-      console.log();
-
-      console.log(`🎯 ${colors.white}Tokens:${colors.reset}         ${colors.white}${tokensUsed.toLocaleString()}${colors.reset} / ${colors.gray}~${tokenLimit.toLocaleString()}${colors.reset} (${colors.cyan}${tokensLeft.toLocaleString()} left${colors.reset})`);
-      console.log(`🔥 ${colors.white}Burn Rate:${colors.reset}      ${colors.yellow}${burnRate.toFixed(1)}${colors.reset} ${colors.gray}tokens/min${colors.reset}`);
-      console.log();
-
-      // Format times with date information when needed
+      // Time math
+      const timeSinceReset = Math.max(0, 300 - minutesToReset); 
       const today = new Date();
       const isToday = (date: Date) => {
         return date.getDate() === today.getDate() &&
                date.getMonth() === today.getMonth() &&
                date.getFullYear() === today.getFullYear();
       };
-      
       const predictedEndStr = predictedEndTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
       const resetTimeStr = resetTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-      
-      // Add date suffix if different from today
       const predictedDisplay = isToday(predictedEndTime) 
         ? predictedEndStr 
         : `${predictedEndStr} (${predictedEndTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
       const resetDisplay = isToday(resetTime) 
         ? resetTimeStr 
         : `${resetTimeStr} (${resetTime.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})`;
-      
-      console.log(`🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}`);
-      console.log(`🔄 ${colors.white}Token Reset:${colors.reset}   ${resetDisplay}`);
-      console.log();
 
-      const showSwitchNotification = tokensUsed > 7000 && plan === 'pro' && tokenLimit > 7000;
-      const showExceedNotification = tokensUsed > tokenLimit;
+      if (displayMode === 'minimal') {
+        // Minimal display mode with border
+        const terminalWidth = getTerminalWidth();
+        const progressBar = createTokenProgressBar(usagePercentage, 15);
+        const timeToResetBar = createTimeProgressBar(timeSinceReset, 300, 15);
+        const line = ``+
+          `📊 ${colors.white}Token Usage:${colors.reset} ${progressBar}  ` 
+        + `⏳ ${colors.white}Time to Reset:${colors.reset} ${timeToResetBar}  ` 
+        + `🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}  ` 
+        + `🔄 ${colors.white}Token Reset:${colors.reset} ${resetDisplay}`
+        
+        const visibleLength = line.replace(/\x1b\[[0-9;]*m/g, '').length;
+        const borderWidth = Math.max(80, terminalWidth);
+        const padding = ' '.repeat(Math.max(0, borderWidth - 6 - visibleLength));
+        
+        const topBorder = `${colors.cyan}╭${'─'.repeat(borderWidth - 2)}╮${colors.reset}`;
+        const bottomBorder = `${colors.cyan}╰${'─'.repeat(borderWidth - 2)}╯${colors.reset}`;
+        const paddedLine = `${colors.cyan}│${colors.reset} ${line}${padding} ${colors.cyan}│${colors.reset}`;
+        
+        console.log(topBorder);
+        console.log(paddedLine);
+        console.log(bottomBorder);
+      } else {
+        // Verbose display mode (original)
+        printHeader();
 
-      if (showSwitchNotification) {
-        console.log(`🔄 ${colors.yellow}Tokens exceeded Pro limit - switched to custom_max (${tokenLimit.toLocaleString()})${colors.reset}`);
+        console.log(`📊 ${colors.white}Token Usage:${colors.reset}    ${createTokenProgressBar(usagePercentage)}`);
         console.log();
-      }
 
-      if (showExceedNotification) {
-        console.log(`🚨 ${colors.red}TOKENS EXCEEDED MAX LIMIT! (${tokensUsed.toLocaleString()} > ${tokenLimit.toLocaleString()})${colors.reset}`);
+        console.log(`⏳ ${colors.white}Time to Reset:${colors.reset}  ${createTimeProgressBar(timeSinceReset, 300)}`);
         console.log();
-      }
 
-      if (predictedEndTime < resetTime) {
-        console.log(`⚠️  ${colors.red}Tokens will run out BEFORE reset!${colors.reset}`);
+        console.log(`🎯 ${colors.white}Tokens:${colors.reset}         ${colors.white}${tokensUsed.toLocaleString()}${colors.reset} / ${colors.gray}~${tokenLimit.toLocaleString()}${colors.reset} (${colors.cyan}${tokensLeft.toLocaleString()} left${colors.reset})`);
+        console.log(`🔥 ${colors.white}Burn Rate:${colors.reset}      ${colors.yellow}${burnRate.toFixed(1)}${colors.reset} ${colors.gray}tokens/min${colors.reset}`);
         console.log();
+
+        console.log(`🏁 ${colors.white}Predicted End:${colors.reset} ${predictedDisplay}`);
+        console.log(`🔄 ${colors.white}Token Reset:${colors.reset}   ${resetDisplay}`);
+        console.log();
+
+        const showSwitchNotification = tokensUsed > 7000 && plan === 'pro' && tokenLimit > 7000;
+        const showExceedNotification = tokensUsed > tokenLimit;
+
+        if (showSwitchNotification) {
+          console.log(`🔄 ${colors.yellow}Tokens exceeded Pro limit - switched to custom_max (${tokenLimit.toLocaleString()})${colors.reset}`);
+          console.log();
+        }
+
+        if (showExceedNotification) {
+          console.log(`🚨 ${colors.red}TOKENS EXCEEDED MAX LIMIT! (${tokensUsed.toLocaleString()} > ${tokenLimit.toLocaleString()})${colors.reset}`);
+          console.log();
+        }
+
+        if (predictedEndTime < resetTime) {
+          console.log(`⚠️  ${colors.red}Tokens will run out BEFORE reset!${colors.reset}`);
+          console.log();
+        }
+
+        const currentTimeStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        console.log(`⏰ ${colors.gray}${currentTimeStr}${colors.reset} 📝 ${colors.cyan}Smooth sailing...${colors.reset} | ${colors.gray}Ctrl+C to exit${colors.reset} 🟨`);
       }
-
-      const currentTimeStr = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-      console.log(`⏰ ${colors.gray}${currentTimeStr}${colors.reset} 📝 ${colors.cyan}Smooth sailing...${colors.reset} | ${colors.gray}Ctrl+C to exit${colors.reset} 🟨`);
-
-      // Clear any remaining lines below to prevent artifacts
-      clearBelowCursor();
 
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
