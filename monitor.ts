@@ -65,8 +65,18 @@ function createTokenProgressBar(percentage: number, width: number = 50): string 
   const green = '\x1b[92m';
   const red = '\x1b[91m';
   const reset = '\x1b[0m';
+
+  // green, yellow at 75%, orange at 85%, red at 95%
+  let stateIcon = '🟢'
+  if (percentage >= 95) {
+    stateIcon = '🔴'; 
+  } else if (percentage >= 85) {
+    stateIcon = '🟠'; 
+  } else if (percentage >= 75) {
+    stateIcon = '🟡'; 
+  }
   
-  return `🟢 [${green}${greenBar}${red}${redBar}${reset}] ${percentage.toFixed(1)}%`;
+  return `${stateIcon} [${green}${greenBar}${red}${redBar}${reset}] ${percentage.toFixed(1)}%`;
 }
 
 function createTimeProgressBar(elapsedMinutes: number, totalMinutes: number, width: number = 50): string {
