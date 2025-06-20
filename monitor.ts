@@ -96,33 +96,6 @@ function printHeader(): void {
   console.log();
 }
 
-function createMiniGraph(history: number[], width: number = 60): string {
-  if (history.length === 0) return ' '.repeat(width);
-  
-  // Use fixed scale instead of dynamic - each bar level represents ~50 tokens/min
-  const maxScale = 400; // Top bar = 400 tokens/min
-  const bars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-  
-  let graph = '';
-  const startIndex = Math.max(0, history.length - width);
-  
-  for (let i = startIndex; i < history.length; i++) {
-    const rate = history[i];
-    const normalized = Math.min(rate / maxScale, 1);
-    const barIndex = Math.floor(normalized * (bars.length - 1));
-    const color = rate > 200 ? '\x1b[91m' : rate > 100 ? '\x1b[93m' : '\x1b[92m';
-    graph += `${color}${bars[barIndex]}\x1b[0m`;
-  }
-  
-  // Pad with spaces if we don't have enough history
-  const remaining = width - (history.length - startIndex);
-  if (remaining > 0) {
-    graph = ' '.repeat(remaining) + graph;
-  }
-  
-  return graph;
-}
-
 function getVelocityIndicator(burnRate: number): string {
   if (burnRate < 50) {
     return '🐌';
