@@ -15,6 +15,17 @@ interface CcusageData {
   blocks: Block[];
 }
 
+const colors = {
+  cyan: '\x1b[96m',
+  green: '\x1b[92m',
+  blue: '\x1b[94m',
+  red: '\x1b[91m',
+  yellow: '\x1b[93m',
+  white: '\x1b[97m',
+  gray: '\x1b[90m',
+  reset: '\x1b[0m',
+};
+
 function getTerminalWidth(): number {
   return process.stdout.columns || 156;
 }
@@ -42,14 +53,10 @@ function formatTime(minutes: number): string {
 }
 
 function createTokenProgressBar(percentage: number, width: number = 50): string {
-  const filled = Math.floor(width * percentage / 100);
+  const filled = Math.min(width, Math.max(0, Math.floor(width * percentage / 100)));
   
   const greenBar = '█'.repeat(filled);
   const redBar = '░'.repeat(width - filled);
-  
-  const green = '\x1b[92m';
-  const red = '\x1b[91m';
-  const reset = '\x1b[0m';
 
   // green, yellow at 75%, orange at 85%, red at 95%
   let stateIcon = '🟢'
@@ -61,46 +68,26 @@ function createTokenProgressBar(percentage: number, width: number = 50): string 
     stateIcon = '🟡'; 
   }
   
-  return `${stateIcon} [${green}${greenBar}${red}${redBar}${reset}] ${percentage.toFixed(1)}%`;
+  return `${stateIcon} [${colors.green}${greenBar}${colors.red}${redBar}${colors.reset}] ${percentage.toFixed(1)}%`;
 }
 
 function createTimeProgressBar(elapsedMinutes: number, totalMinutes: number, width: number = 50): string {
   const percentage = totalMinutes <= 0 ? 0 : Math.min(100, (elapsedMinutes / totalMinutes) * 100);
-  const filled = Math.floor(width * percentage / 100);
+  const filled = Math.min(width, Math.max(0, Math.floor(width * percentage / 100)));
   
   const blueBar = '█'.repeat(filled);
   const redBar = '░'.repeat(width - filled);
   
-  const blue = '\x1b[94m';
-  const red = '\x1b[91m';
-  const reset = '\x1b[0m';
-  
   const remainingTime = formatTime(Math.max(0, totalMinutes - elapsedMinutes));
-  return `⏰ [${blue}${blueBar}${red}${redBar}${reset}] ${remainingTime}`;
+  return `⏰ [${colors.blue}${blueBar}${colors.red}${redBar}${colors.reset}] ${remainingTime}`;
 }
 
 function printHeader(): void {
-  const cyan = '\x1b[96m';
-  const blue = '\x1b[94m';
-  const reset = '\x1b[0m';
+  const sparkles = `${colors.cyan}✦ ✧ ✦ ✧ ${colors.reset}`;
   
-  const sparkles = `${cyan}✦ ✧ ✦ ✧ ${reset}`;
-  
-  console.log(`${sparkles}${cyan}CLAUDE TOKEN MONITOR${reset} ${sparkles}`);
-  console.log(`${blue}${'='.repeat(60)}${reset}`);
+  console.log(`${sparkles}${colors.cyan}CLAUDE TOKEN MONITOR${colors.reset} ${sparkles}`);
+  console.log(`${colors.blue}${'='.repeat(60)}${colors.reset}`);
   console.log();
-}
-
-function getVelocityIndicator(burnRate: number): string {
-  if (burnRate < 50) {
-    return '🐌';
-  } else if (burnRate < 150) {
-    return '➡️';
-  } else if (burnRate < 300) {
-    return '🚀';
-  } else {
-    return '⚡';
-  }
 }
 
 function calculateHourlyBurnRate(blocks: Block[], currentTime: Date): number {
@@ -225,14 +212,6 @@ function showCursor(): void {
 
 function moveCursorToTop(): void {
   process.stdout.write('\x1b[H');
-}
-
-function clearBelowCursor(): void {
-  process.stdout.write('\x1b[J');
-}
-
-function clearLine(): void {
-  process.stdout.write('\x1b[2K\r');
 }
 
 function createReadlineInterface() {
@@ -385,7 +364,7 @@ async function main(): Promise<void> {
         }
       }
 
-      const usagePercentage = tokenLimit > 0 ? (tokensUsed / tokenLimit) * 100 : 0;
+      const usagePercentage = Math.max(tokenLimit > 0 ? (tokensUsed / tokenLimit) * 100 : 0, 0);
       const tokensLeft = tokenLimit - tokensUsed;
 
       const currentTime = new Date();
@@ -414,17 +393,6 @@ async function main(): Promise<void> {
         // No burn rate or no tokens left
         predictedEndTime = resetTime;
       }
-
-      const colors = {
-        cyan: '\x1b[96m',
-        green: '\x1b[92m',
-        blue: '\x1b[94m',
-        red: '\x1b[91m',
-        yellow: '\x1b[93m',
-        white: '\x1b[97m',
-        gray: '\x1b[90m',
-        reset: '\x1b[0m',
-      };
 
       // Time math
       const timeSinceReset = Math.max(0, 300 - minutesToReset); 
